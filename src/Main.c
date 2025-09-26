@@ -2,6 +2,7 @@
 #include "/home/codeleaded/System/Static/Library/RLCamera.h"
 #include "/home/codeleaded/System/Static/Library/ImageFilter.h"
 #include "/home/codeleaded/System/Static/Library/Random.h"
+#include "/home/codeleaded/System/Static/Library/OpticalFlow.h"
 
 
 #define OUTPUT_WIDTH    (RLCAMERA_WIDTH / 2)
@@ -9,15 +10,8 @@
 
 
 RLCamera rlc;
-Sprite captured;
-Sprite captured_old;
-Sprite motion;
+OpticalFlow of;
 
-float* ln_before;
-float* ln_after;
-
-Vec2* vectorfield;
-Vec2* flow;
 Rect rect;
 Vec2 rect_v;
 
@@ -25,55 +19,7 @@ float xscroll;
 float yscroll;
 Vector selection;
 
-#define WALK_X  2
-#define WALK_Y  2
 
-Vec2 Flow_CalculateVector(int index){
-    Vec2 dir = { 0.0f,0.0f };
-    for(int i = -WALK_Y;i<=WALK_Y;i++){
-        for(int j = -WALK_X;j<=WALK_X;j++){
-            if(i==0 && j==0) continue;
-            
-            const int access = i * OUTPUT_WIDTH + index + j;
-            const Vec2 vdir = Vec2_Norm((Vec2){ j,i });
-            const float diff = 100.0f * F32_Abs(ln_after[access] - ln_before[access]);
-            
-            if(access>=0 && access < OUTPUT_WIDTH * OUTPUT_HEIGHT){
-                dir = Vec2_Add(dir,Vec2_Mulf(vdir,diff));
-            }
-        }
-    }
-    return dir;
-}
-void Flow_Calculate(){
-    for(int i = 0;i<OUTPUT_WIDTH * OUTPUT_HEIGHT;i++){
-        flow[i] = Vec2_Neg(Flow_CalculateVector(i));
-    }
-}
-int Flow_MaxVec(){
-    int index = 0;
-    Vec2 v = { 0.0f,0.0f };
-    for(int i = 0;i<OUTPUT_WIDTH * OUTPUT_HEIGHT;i++){
-        if(Vec2_Mag2(flow[i]) > Vec2_Mag2(v)){
-            v = flow[i];
-            index = i;
-        }
-    }
-    return index;
-}
-
-Vec2 CalculateVectorGes(int x,int y,int w,int h){
-    Vec2 dir = { 0.0f,0.0f };
-    for(int i = 0;i<h;i++){
-        for(int j = 0;j<w;j++){
-            const int access = (y + i) * OUTPUT_WIDTH + (x + j);
-            if(access<0 || access>=OUTPUT_WIDTH) continue;
-
-            dir = Vec2_Add(dir,flow[access]);
-        }
-    }
-    return dir;
-}
 void BW_Render(Pixel* target,unsigned int width,unsigned int height,float* bw_buffer,int w,int h){
     for(int i = 0;i<h;i++){
         for(int j = 0;j<w;j++){
@@ -85,24 +31,22 @@ void BW_Render(Pixel* target,unsigned int width,unsigned int height,float* bw_bu
 void VF_Render(Pixel* target,unsigned int width,unsigned int height,Vec2* bw_buffer,int w,int h){
     for(int i = 0;i<h;i++){
         for(int j = 0;j<w;j++){
-            const float x = Vec2_Mag2(bw_buffer[i * w + j]);
-            const float l = F32_Clamp(x / (x + 1.0f),0.0f,1.0f);
-            target[i * width + j] = Pixel_toRGBA(l,l,l,1.0f);
+            const Vec2 flower = Vec2_Mulf(bw_buffer[i * w + j],0.5f);
+            const Vec2 pos = { j,i };
+            const float len = F32_Clamp(Vec2_Mag(flower),0.0f,1.0f);
+            target[i * width + j] = Pixel_toRGBA(len,len,len,1.0f);
+
+            if((int)F32_Abs(flower.x * 6.0f) || (int)F32_Abs(flower.y * 6.0f)){
+                const Vec2 tar = Vec2_Add(pos,Vec2_Mulf(Vec2_Norm(flower),5.0f));
+                RenderLine(pos,tar,RED,1.0f);
+            }
         }
     }
 }
 
 void Setup(AlxWindow* w){
     rlc = RLCamera_New("/dev/video0",RLCAMERA_WIDTH,RLCAMERA_HEIGHT);
-
-    captured = Sprite_New(OUTPUT_WIDTH,OUTPUT_HEIGHT);
-    captured_old = Sprite_New(OUTPUT_WIDTH,OUTPUT_HEIGHT);
-    
-    ln_before = (float*)malloc(sizeof(float) * OUTPUT_WIDTH * OUTPUT_HEIGHT);
-    ln_after = (float*)malloc(sizeof(float) * OUTPUT_WIDTH * OUTPUT_HEIGHT);
-
-    vectorfield = (Vec2*)malloc(sizeof(Vec2) * OUTPUT_WIDTH * OUTPUT_HEIGHT);
-    flow = (Vec2*)malloc(sizeof(Vec2) * OUTPUT_WIDTH * OUTPUT_HEIGHT);
+    of = OpticalFlow_New(OUTPUT_WIDTH,OUTPUT_HEIGHT);
     
     rect = Rect_New((Vec2){ OUTPUT_WIDTH * 0.5f,OUTPUT_HEIGHT * 0.5f },(Vec2){ 10.0f,10.0f });
     rect_v = (Vec2){ 0.0f,0.0f };
@@ -120,52 +64,23 @@ void Setup(AlxWindow* w){
 }
 void Update(AlxWindow* w){
     if(RLCamera_Ready(&rlc)){
-        Sprite_Free(&captured_old);
-        captured_old = captured;
-
         RLCamera_Update(&rlc);
-        captured = Sprite_Cpy(&rlc.lastimg);
-        Sprite_Resize(&captured,OUTPUT_WIDTH,OUTPUT_HEIGHT);
+        OpticalFlow_Set(&of,&rlc.lastimg,w->ElapsedTime);
     }
 
     Clear(BLACK);
 
-    for(int i = 0;i<captured.w * captured.h;i++){
-        //float filter = Pixel_Lightness_N(captured_old.img[i]) + (Pixel_Lightness_N(captured.img[i]) - Pixel_Lightness_N(captured_old.img[i])) * w->ElapsedTime * 10.0f;
-        //float diff = filter;
-        //float diff = F32_Abs(filter - ln_after[i]);
-        //if(diff <= 0.01f) diff = 0.0f;
-        //ln_before[i] = ln_after[i];
-        //ln_after[i] = diff;
-
-        ln_before[i] = ln_after[i];
-        float filter = ln_after[i] + (Pixel_Lightness_N(captured.img[i]) - ln_after[i]) * w->ElapsedTime * 0.1f;
-        ln_after[i] = filter;
-    }
-
-    Flow_Calculate();
-
-    //Vec2 middle = Vec2_Add(rect.p,Vec2_Mulf(rect.d,0.5f));
-    //Vec2 flowdir = flow[(int)middle.y * OUTPUT_WIDTH + (int)middle.x];
-    //Vec2 flowdir = CalculateVectorGes((int)rect.p.x,(int)rect.p.y,(int)rect.d.x,(int)rect.d.y);
-    //rect_v = Vec2_Add(rect_v,Vec2_Mulf(flowdir,100.0f * w->ElapsedTime));
-    //rect_v = Vec2_Mulf(rect_v,0.99f);
-    //rect.p = Vec2_Add(rect.p,Vec2_Mulf(rect_v,1.0f * w->ElapsedTime));
+    const Vec2 max = OpticalFlow_Max(&of);
+    const Vec2 sig = OpticalFlow_Area(&of,max);
     
-    const int vec = Flow_MaxVec();
-    const Vec2 pos = (Vec2){ vec % OUTPUT_WIDTH,vec / OUTPUT_WIDTH };
-    const Vec2 sig = CalculateVectorGes((int)pos.x - 25,(int)pos.y - 25,50,50);
-    
-    rect_v = Vec2_Mulf(Vec2_Sub(pos,rect.p),1.0f * w->ElapsedTime);
-    rect.p = Vec2_Add(rect.p,rect_v);
-    //xscroll += rect_v.x;
-    //yscroll += rect_v.y;
-    xscroll += sig.x;
-    yscroll += sig.y;
+    rect_v = Vec2_Div(sig,(Vec2){ 1.0f,1.0f });
+    rect.p = Vec2_Add(rect.p,Vec2_Mulf(rect_v,10.0f * w->ElapsedTime));
+    xscroll += rect_v.x * 1.0f * w->ElapsedTime;
+    yscroll += rect_v.y * 1.0f * w->ElapsedTime;
 
-    //Sprite_Render(WINDOW_STD_ARGS,&captured,0.0f,0.0f);
-    //BW_Render(WINDOW_STD_ARGS,ln_after,OUTPUT_WIDTH,OUTPUT_HEIGHT);
-    VF_Render(WINDOW_STD_ARGS,flow,OUTPUT_WIDTH,OUTPUT_HEIGHT);
+    VF_Render(WINDOW_STD_ARGS,of.flow,OUTPUT_WIDTH,OUTPUT_HEIGHT);
+
+    RenderLine(max,Vec2_Add(max,Vec2_Mulf(Vec2_Norm(of.flow[(int)max.y * of.captured.w + (int)max.x]),10.0f)),BLUE,1.0f);
 
     if(rect.p.x<0.0f){
         rect.p.x = 0.0f;
@@ -185,48 +100,34 @@ void Update(AlxWindow* w){
     }
 
 
-    const float lx = 100.0f;
-    const float ly = 100.0f;
-    const float px = 10.0f;
-    const float py = 10.0f;
+    // const float lx = 100.0f;
+    // const float ly = 100.0f;
+    // const float px = 10.0f;
+    // const float py = 10.0f;
 
-    if(Stroke(ALX_KEY_W).DOWN)   yscroll += (ly + py) * w->ElapsedTime;
-    if(Stroke(ALX_KEY_S).DOWN)   yscroll -= (ly + py) * w->ElapsedTime;
-    if(Stroke(ALX_KEY_A).DOWN)   xscroll += (lx + px) * w->ElapsedTime;
-    if(Stroke(ALX_KEY_D).DOWN)   xscroll -= (lx + px) * w->ElapsedTime;
+    // if(Stroke(ALX_KEY_W).DOWN)   yscroll += 1.0f * w->ElapsedTime;
+    // if(Stroke(ALX_KEY_S).DOWN)   yscroll -= 1.0f * w->ElapsedTime;
+    // if(Stroke(ALX_KEY_A).DOWN)   xscroll += 1.0f * w->ElapsedTime;
+    // if(Stroke(ALX_KEY_D).DOWN)   xscroll -= 1.0f * w->ElapsedTime;
 
-    if(yscroll < 0.0f)          yscroll = 0.0f;
-    if(xscroll < 0.0f)          xscroll = 0.0f;
-    if(yscroll > 10.0f - 2.0f)  yscroll = 10.0f - 2.0f;
-    if(xscroll > 10.0f - 2.0f)  xscroll = 10.0f - 2.0f;
+    // if(yscroll < 0.0f)          yscroll = 0.0f;
+    // if(xscroll < 0.0f)          xscroll = 0.0f;
+    // if(yscroll > 10.0f - 2.0f)  yscroll = 10.0f - 2.0f;
+    // if(xscroll > 10.0f - 2.0f)  xscroll = 10.0f - 2.0f;
 
-    for(int i = 0;i<selection.size;i++){
-        Vector* add = (Vector*)Vector_Get(&selection,i);
-        for(int j = 0;j<add->size;j++){
-            CStr* cstr = (CStr*)Vector_Get(add,j);
-            RenderRectAlpha(j * (lx + px) - xscroll,i * (ly + py) - yscroll,lx,ly,0x44FF0000);
-        }
-    }
+    // for(int i = 0;i<selection.size;i++){
+    //     Vector* add = (Vector*)Vector_Get(&selection,i);
+    //     for(int j = 0;j<add->size;j++){
+    //         CStr* cstr = (CStr*)Vector_Get(add,j);
+    //         RenderRectAlpha(j * (lx + px) - xscroll * (lx + px),i * (ly + py) - yscroll * (ly + py),lx,ly,0x44FF0000);
+    //     }
+    // }
 
     RenderRect(rect.p.x,rect.p.y,rect.d.x,rect.d.y,GREEN);
 }
 void Delete(AlxWindow* w){
     RLCamera_Free(&rlc);
-    Sprite_Free(&captured);
-    Sprite_Free(&captured_old);
-    
-    if(ln_before) free(ln_before);
-    ln_before = NULL;
-
-    if(ln_after) free(ln_after);
-    ln_after = NULL;
-
-
-    if(vectorfield) free(vectorfield);
-    vectorfield = NULL;
-    
-    if(flow) free(flow);
-    flow = NULL;
+    OpticalFlow_Free(&of);
 
     for(int i = 0;i<selection.size;i++){
         Vector* add = (Vector*)Vector_Get(&selection,i);

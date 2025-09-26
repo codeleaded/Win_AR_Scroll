@@ -13,7 +13,7 @@ OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 
 TARGET = $(BUILD_DIR)/Main
 
-all: 
+all:
 	$(CC) $(CFLAGS) $(INCLUDES) ./$(SRC_DIR)/Main.c -o ./$(TARGET) $(LDFLAGS) 
 
 exe:
@@ -21,5 +21,9 @@ exe:
 
 clean:
 	rm -rf $(BUILD_DIR)/*
+
+dg: clean
+	$(CC) $(CFLAGS) -g $(INCLUDES) ./$(SRC_DIR)/Main.c -o ./$(TARGET) $(LDFLAGS)
+	gdb ./$(TARGET)
 
 do: clean all exe
