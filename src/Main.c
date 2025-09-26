@@ -71,16 +71,24 @@ void Update(AlxWindow* w){
     Clear(BLACK);
 
     const Vec2 max = OpticalFlow_Max(&of);
-    const Vec2 sig = OpticalFlow_Area(&of,max);
+    const Vec2 sig = Vec2_Mulf(OpticalFlow_Area(&of,max),0.5f);
     
-    rect_v = Vec2_Div(sig,(Vec2){ 1.0f,1.0f });
-    rect.p = Vec2_Add(rect.p,Vec2_Mulf(rect_v,10.0f * w->ElapsedTime));
-    xscroll += rect_v.x * 1.0f * w->ElapsedTime;
-    yscroll += rect_v.y * 1.0f * w->ElapsedTime;
+    if(Vec2_Mag(sig) > 3.0f){
+        //rect_v = Vec2_Div(Vec2_Sub(max,rect.p),(Vec2){ OUTPUT_WIDTH,OUTPUT_HEIGHT }); 
+        rect_v = Vec2_Mulf(Vec2_Norm(Vec2_Sub(max,rect.p)),0.1f);
+    }else{
+        rect.p = max;
+        rect_v = (Vec2){ 0.0f,0.0f };
+    }
+    
+    rect.p = Vec2_Add(rect.p,Vec2_Mulf(rect_v,100.0f * w->ElapsedTime));
+    
+    if(F32_Abs(rect_v.x) > F32_Abs(rect_v.y))   xscroll += rect_v.x * 10.0f * w->ElapsedTime;
+    else                                        yscroll += -rect_v.y * 10.0f * w->ElapsedTime;
 
     VF_Render(WINDOW_STD_ARGS,of.flow,OUTPUT_WIDTH,OUTPUT_HEIGHT);
 
-    RenderLine(max,Vec2_Add(max,Vec2_Mulf(Vec2_Norm(of.flow[(int)max.y * of.captured.w + (int)max.x]),10.0f)),BLUE,1.0f);
+    RenderLine(max,Vec2_Add(max,Vec2_Mulf(Vec2_Norm(of.flow[(int)max.y * of.captured.w + (int)max.x]),50.0f)),BLUE,1.0f);
 
     if(rect.p.x<0.0f){
         rect.p.x = 0.0f;
@@ -100,28 +108,28 @@ void Update(AlxWindow* w){
     }
 
 
-    // const float lx = 100.0f;
-    // const float ly = 100.0f;
-    // const float px = 10.0f;
-    // const float py = 10.0f;
+    const float lx = 100.0f;
+    const float ly = 100.0f;
+    const float px = 10.0f;
+    const float py = 10.0f;
 
-    // if(Stroke(ALX_KEY_W).DOWN)   yscroll += 1.0f * w->ElapsedTime;
-    // if(Stroke(ALX_KEY_S).DOWN)   yscroll -= 1.0f * w->ElapsedTime;
-    // if(Stroke(ALX_KEY_A).DOWN)   xscroll += 1.0f * w->ElapsedTime;
-    // if(Stroke(ALX_KEY_D).DOWN)   xscroll -= 1.0f * w->ElapsedTime;
+    if(Stroke(ALX_KEY_W).DOWN)   yscroll += 1.0f * w->ElapsedTime;
+    if(Stroke(ALX_KEY_S).DOWN)   yscroll -= 1.0f * w->ElapsedTime;
+    if(Stroke(ALX_KEY_A).DOWN)   xscroll += 1.0f * w->ElapsedTime;
+    if(Stroke(ALX_KEY_D).DOWN)   xscroll -= 1.0f * w->ElapsedTime;
 
-    // if(yscroll < 0.0f)          yscroll = 0.0f;
-    // if(xscroll < 0.0f)          xscroll = 0.0f;
-    // if(yscroll > 10.0f - 2.0f)  yscroll = 10.0f - 2.0f;
-    // if(xscroll > 10.0f - 2.0f)  xscroll = 10.0f - 2.0f;
+    if(yscroll < 0.0f)          yscroll = 0.0f;
+    if(xscroll < 0.0f)          xscroll = 0.0f;
+    if(yscroll > 10.0f - 2.0f)  yscroll = 10.0f - 2.0f;
+    if(xscroll > 10.0f - 2.0f)  xscroll = 10.0f - 2.0f;
 
-    // for(int i = 0;i<selection.size;i++){
-    //     Vector* add = (Vector*)Vector_Get(&selection,i);
-    //     for(int j = 0;j<add->size;j++){
-    //         CStr* cstr = (CStr*)Vector_Get(add,j);
-    //         RenderRectAlpha(j * (lx + px) - xscroll * (lx + px),i * (ly + py) - yscroll * (ly + py),lx,ly,0x44FF0000);
-    //     }
-    // }
+    for(int i = 0;i<selection.size;i++){
+        Vector* add = (Vector*)Vector_Get(&selection,i);
+        for(int j = 0;j<add->size;j++){
+            CStr* cstr = (CStr*)Vector_Get(add,j);
+            RenderRectAlpha(j * (lx + px) - xscroll * (lx + px),i * (ly + py) - yscroll * (ly + py),lx,ly,0x44FF0000);
+        }
+    }
 
     RenderRect(rect.p.x,rect.p.y,rect.d.x,rect.d.y,GREEN);
 }
